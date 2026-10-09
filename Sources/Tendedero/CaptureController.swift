@@ -20,16 +20,19 @@ final class CaptureController {
         overlay.begin { [weak self] result in
             self?.overlay = nil
             do {
-                switch result {
-                case .cancel:
-                    return
-                case .save(let request):
-                    let url = try Self.capture(request)
-                    Self.copyToPasteboard(url)
-                    completion(url)
-                case .pin(let request):
-                    let url = try Self.capture(request)
-                    try self?.pin(url, near: request.rect)
+                try autoreleasepool {
+                    switch result {
+                    case .cancel:
+                        return
+                    case .save(let request):
+                        let url = try Self.capture(request)
+                        Self.copyToPasteboard(url)
+                        completion(url)
+                    case .pin(let request):
+                        let image = Self.annotatedImage(request.image, rect: request.rect,
+                                                        annotations: request.annotations) ?? request.image
+                        self?.pin(image, near: request.rect)
+                    }
                 }
             } catch {
                 Self.showError(error)
@@ -37,8 +40,7 @@ final class CaptureController {
         }
     }
 
-    private func pin(_ url: URL, near rect: CGRect) throws {
-        guard let image = NSImage(contentsOf: url) else { throw CaptureError.couldNotWrite }
+    private func pin(_ image: CGImage, near rect: CGRect) {
         let window = PinnedImageWindow(image: image, frame: rect)
         pinnedWindows.append(window)
         window.onClose = { [weak self, weak window] in
@@ -48,26 +50,11 @@ final class CaptureController {
 
     private static func capture(_ request: CaptureRequest) throws -> URL {
         let rect = request.rect
-        guard let screen = NSScreen.screens.first(where: { $0.frame.intersects(rect) }),
-              let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID,
-              let image = CGDisplayCreateImage(displayID) else {
-            throw CaptureError.permissionOrCaptureFailed
-        }
-
-        let clipped = rect.intersection(screen.frame)
-        let sx = CGFloat(image.width) / screen.frame.width
-        let sy = CGFloat(image.height) / screen.frame.height
-        let crop = CGRect(x: (clipped.minX - screen.frame.minX) * sx,
-                          y: (screen.frame.maxY - clipped.maxY) * sy,
-                          width: clipped.width * sx,
-                          height: clipped.height * sy).integral
-
-        guard crop.width >= 2, crop.height >= 2,
-              let cropped = image.cropping(to: crop) else {
+        guard request.image.width >= 2, request.image.height >= 2 else {
             throw CaptureError.emptySelection
         }
 
-        let output = annotatedImage(cropped, rect: clipped, annotations: request.annotations) ?? cropped
+        let output = annotatedImage(request.image, rect: rect, annotations: request.annotations) ?? request.image
 
         try FileManager.default.createDirectory(at: Inbox.folder, withIntermediateDirectories: true)
         let url = uniqueURL(in: Inbox.folder, named: filename())
@@ -82,25 +69,38 @@ final class CaptureController {
     private static func annotatedImage(_ image: CGImage, rect: CGRect,
                                        annotations: [CaptureAnnotationStroke]) -> CGImage? {
         guard !annotations.isEmpty else { return image }
-        let size = rect.size
-        let base = NSImage(cgImage: image, size: size)
-        let canvas = NSImage(size: size)
-        canvas.lockFocus()
-        base.draw(in: CGRect(origin: .zero, size: size))
-        for stroke in annotations where stroke.points.count > 1 {
-            let path = NSBezierPath()
-            path.lineCapStyle = .round
-            path.lineJoinStyle = .round
-            path.lineWidth = stroke.width
-            for (index, point) in stroke.points.enumerated() {
-                let local = CGPoint(x: point.x - rect.minX, y: point.y - rect.minY)
-                if index == 0 { path.move(to: local) } else { path.line(to: local) }
-            }
-            stroke.color.setStroke()
-            path.stroke()
+        let width = image.width
+        let height = image.height
+        let colorSpace = image.colorSpace ?? CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(data: nil, width: width, height: height,
+                                      bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: colorSpace,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            return nil
         }
-        canvas.unlockFocus()
-        return canvas.cgImage(forProposedRect: nil, context: nil, hints: nil)
+
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        context.setLineCap(.round)
+        context.setLineJoin(.round)
+
+        let scaleX = CGFloat(width) / rect.width
+        let scaleY = CGFloat(height) / rect.height
+        for stroke in annotations where stroke.points.count > 1 {
+            let color = stroke.color.usingColorSpace(.deviceRGB) ?? stroke.color
+            context.setStrokeColor(CGColor(red: color.redComponent,
+                                           green: color.greenComponent,
+                                           blue: color.blueComponent,
+                                           alpha: color.alphaComponent))
+            context.setLineWidth(stroke.width * max(scaleX, scaleY))
+            context.beginPath()
+            for (index, point) in stroke.points.enumerated() {
+                let local = CGPoint(x: (point.x - rect.minX) * scaleX,
+                                    y: (point.y - rect.minY) * scaleY)
+                if index == 0 { context.move(to: local) } else { context.addLine(to: local) }
+            }
+            context.strokePath()
+        }
+        return context.makeImage()
     }
 
     private static func copyToPasteboard(_ url: URL) {

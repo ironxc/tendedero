@@ -10,11 +10,19 @@ final class CaptureOverlay {
     func begin(completion: @escaping (CaptureOverlayResult) -> Void) {
         self.completion = completion
         NSApp.activate(ignoringOtherApps: true)
-        windows = NSScreen.screens.map { screen in
+        let mouse = NSEvent.mouseLocation
+        let screens = [NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
+                       ?? NSScreen.main
+                       ?? NSScreen.screens.first].compactMap { $0 }
+        windows = screens.map { screen in
             let window = CaptureWindow(screen: screen)
-            window.selectionView.onChange = { [weak self] rect in self?.selectionChanged(rect, from: window) }
+            window.selectionView.onChange = { [weak self, weak window] rect in
+                guard let window else { return }
+                self?.selectionChanged(rect, from: window)
+            }
             window.selectionView.onFinish = { [weak self] result in self?.finish(result) }
             window.selectionView.onCancel = { [weak self] in self?.finish(.cancel) }
+            window.displayIfNeeded()
             window.orderFrontRegardless()
             return window
         }
@@ -33,10 +41,18 @@ final class CaptureOverlay {
         guard !didFinish else { return }
         didFinish = true
         NSCursor.arrow.set()
-        for window in windows { window.orderOut(nil) }
+        let callback = completion
+        completion = { _ in }
+        for window in windows {
+            window.selectionView.onChange = { _ in }
+            window.selectionView.onFinish = { _ in }
+            window.selectionView.onCancel = {}
+            window.orderOut(nil)
+            window.contentView = nil
+        }
         windows.removeAll()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [completion] in
-            completion(result)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            callback(result)
         }
     }
 }
@@ -49,6 +65,7 @@ enum CaptureOverlayResult {
 
 struct CaptureRequest {
     let rect: CGRect
+    let image: CGImage
     let annotations: [CaptureAnnotationStroke]
 }
 
@@ -70,6 +87,7 @@ final class CaptureWindow: NSPanel {
         backgroundColor = .black
         isOpaque = true
         hasShadow = false
+        animationBehavior = .none
         ignoresMouseEvents = false
         acceptsMouseMovedEvents = true
         contentView = selectionView
@@ -122,9 +140,9 @@ final class CaptureSelectionView: NSView {
         if event.keyCode == 53 {
             onCancel()
         } else if event.keyCode == kVK_Return || event.keyCode == kVK_ANSI_KeypadEnter, let selection {
-            onFinish(.save(CaptureRequest(rect: selection, annotations: annotations)))
+            if let request = captureRequest(for: selection) { onFinish(.save(request)) }
         } else if event.keyCode == kVK_ANSI_P, let selection {
-            onFinish(.pin(CaptureRequest(rect: selection, annotations: annotations)))
+            if let request = captureRequest(for: selection) { onFinish(.pin(request)) }
         } else if event.keyCode == kVK_ANSI_C, let colorText {
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
@@ -268,6 +286,11 @@ final class CaptureSelectionView: NSView {
                           width: abs(start.x - current.x),
                           height: abs(start.y - current.y))
         return rect.intersection(screenFrame).standardized
+    }
+
+    private func captureRequest(for rect: CGRect) -> CaptureRequest? {
+        guard let image = sampler.croppedImage(of: rect) else { return nil }
+        return CaptureRequest(rect: rect, image: image, annotations: annotations)
     }
 
     private func globalPoint(_ event: NSEvent) -> CGPoint {
@@ -491,51 +514,66 @@ private struct WidthToolbarItem {
 private final class ScreenSampler {
     private let screenFrame: CGRect
     private let image: CGImage?
+    private let samplePixel: UnsafeMutableRawPointer
+    private var sampleContext: CGContext?
 
     init(screen: NSScreen) {
         screenFrame = screen.frame
         let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
         image = displayID.flatMap(CGDisplayCreateImage)
+        samplePixel = UnsafeMutableRawPointer.allocate(byteCount: 4, alignment: 1)
+        samplePixel.initializeMemory(as: UInt8.self, repeating: 0, count: 4)
+        sampleContext = CGContext(data: samplePixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        sampleContext?.interpolationQuality = .none
+    }
+
+    deinit {
+        sampleContext = nil
+        samplePixel.deallocate()
     }
 
     func drawSnapshot(of rect: CGRect, in destination: CGRect) {
-        guard let image else {
+        guard let image, let context = NSGraphicsContext.current?.cgContext else {
             NSColor.clear.setFill()
             destination.fill()
             return
         }
         let clipped = rect.intersection(screenFrame)
         guard !clipped.isNull, clipped.width > 0, clipped.height > 0 else { return }
+
+        context.saveGState()
+        context.clip(to: destination)
+        context.draw(image, in: CGRect(x: 0, y: 0, width: screenFrame.width, height: screenFrame.height))
+        context.restoreGState()
+    }
+
+    func croppedImage(of rect: CGRect) -> CGImage? {
+        guard let image else { return nil }
+        let clipped = rect.intersection(screenFrame)
+        guard !clipped.isNull, clipped.width > 0, clipped.height > 0 else { return nil }
         let sx = CGFloat(image.width) / screenFrame.width
         let sy = CGFloat(image.height) / screenFrame.height
         let crop = CGRect(x: (clipped.minX - screenFrame.minX) * sx,
                           y: (screenFrame.maxY - clipped.maxY) * sy,
                           width: clipped.width * sx,
                           height: clipped.height * sy).integral
-        guard let cropped = image.cropping(to: crop) else { return }
-        NSImage(cgImage: cropped, size: destination.size).draw(in: destination)
+        return image.cropping(to: crop)
     }
 
     func color(at point: CGPoint) -> PickedColor? {
-        guard let image else { return nil }
+        guard let image, let sampleContext else { return nil }
         let sx = CGFloat(image.width) / screenFrame.width
         let sy = CGFloat(image.height) / screenFrame.height
         let x = Int((point.x - screenFrame.minX) * sx)
         let y = Int((screenFrame.maxY - point.y) * sy)
-        guard x >= 0, y >= 0, x < image.width, y < image.height,
-              let cropped = image.cropping(to: CGRect(x: x, y: y, width: 1, height: 1)) else {
-            return nil
-        }
-
-        var pixel = [UInt8](repeating: 0, count: 4)
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        guard let context = CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
-                                      space: colorSpace,
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
-            return nil
-        }
-        context.draw(cropped, in: CGRect(x: 0, y: 0, width: 1, height: 1))
-        return PickedColor(r: pixel[0], g: pixel[1], b: pixel[2], a: pixel[3])
+        guard x >= 0, y >= 0, x < image.width, y < image.height else { return nil }
+        samplePixel.initializeMemory(as: UInt8.self, repeating: 0, count: 4)
+        let yBottom = image.height - y - 1
+        sampleContext.draw(image, in: CGRect(x: -x, y: -yBottom, width: image.width, height: image.height))
+        let bytes = samplePixel.bindMemory(to: UInt8.self, capacity: 4)
+        return PickedColor(r: bytes[0], g: bytes[1], b: bytes[2], a: bytes[3])
     }
 }
 

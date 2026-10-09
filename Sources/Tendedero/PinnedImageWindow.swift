@@ -5,7 +5,7 @@ final class PinnedImageWindow: NSPanel {
     private let pinnedView: PinnedImageView
     var onClose: (() -> Void)?
 
-    init(image: NSImage, frame: CGRect) {
+    init(image: CGImage, frame: CGRect) {
         pinnedView = PinnedImageView(image: image)
         super.init(contentRect: Self.windowFrame(for: frame),
                    styleMask: [.borderless, .nonactivatingPanel],
@@ -40,13 +40,13 @@ final class PinnedImageWindow: NSPanel {
 }
 
 private final class PinnedImageView: NSView {
-    let image: NSImage
+    let image: CGImage
     var onClose: () -> Void = {}
     private var dragStart: CGPoint?
     private var windowStart: CGPoint?
     private var hoveringClose = false
 
-    init(image: NSImage) {
+    init(image: CGImage) {
         self.image = image
         super.init(frame: .zero)
         wantsLayer = true
@@ -119,7 +119,11 @@ private final class PinnedImageView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         NSColor.clear.setFill()
         bounds.fill()
-        image.draw(in: bounds)
+        if let context = NSGraphicsContext.current?.cgContext {
+            context.saveGState()
+            context.draw(image, in: CGRect(x: 0, y: 0, width: bounds.width, height: bounds.height))
+            context.restoreGState()
+        }
 
         guard hoveringClose else { return }
         let badge = closeRect
