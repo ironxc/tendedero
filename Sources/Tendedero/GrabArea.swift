@@ -43,20 +43,20 @@ struct GrabArea: NSViewRepresentable {
         view.onPressChange = { pressed in line.pressedID = pressed ? id : nil }
         view.menuProvider = {
             let menu = NSMenu()
-            menu.addItem(ClosureMenuItem(L("Copy")) { line.copy(id) })
-            menu.addItem(ClosureMenuItem(L("Open")) { line.open(id) })
-            menu.addItem(ClosureMenuItem(L("Markup")) { line.markup(id) })
-            menu.addItem(ClosureMenuItem(L("Show in Finder")) { line.reveal(id) })
+            menu.addItem(ClosureMenuItem(L("Copy", "复制")) { line.copy(id) })
+            menu.addItem(ClosureMenuItem(L("Open", "打开")) { line.open(id) })
+            menu.addItem(ClosureMenuItem(L("Markup", "标注")) { line.markup(id) })
+            menu.addItem(ClosureMenuItem(L("Show in Finder", "在访达中显示")) { line.reveal(id) })
             let inInbox = line.isInInbox(id)
             if inInbox {
-                menu.addItem(ClosureMenuItem(L("Save to Desktop")) { line.saveToDesktop(id) })
+                menu.addItem(ClosureMenuItem(L("Save to Desktop", "保存到桌面")) { line.saveToDesktop(id) })
             }
             menu.addItem(.separator())
             if inInbox {
-                menu.addItem(ClosureMenuItem(L("Discard")) { line.discard(id) })
+                menu.addItem(ClosureMenuItem(L("Discard", "丢弃")) { line.discard(id) })
             } else {
-                menu.addItem(ClosureMenuItem(L("Take down")) { line.discard(id) })
-                menu.addItem(ClosureMenuItem(L("Move to Trash")) { line.trash(id) })
+                menu.addItem(ClosureMenuItem(L("Take down", "取下")) { line.discard(id) })
+                menu.addItem(ClosureMenuItem(L("Move to Trash", "移到废纸篓")) { line.trash(id) })
             }
             return menu
         }

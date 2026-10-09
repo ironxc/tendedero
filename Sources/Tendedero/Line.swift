@@ -39,11 +39,6 @@ final class Line: ObservableObject {
     var maxItems = 8
 
 
-    var soundOn: Bool {
-        get { !UserDefaults.standard.bool(forKey: "soundOff") }
-        set { UserDefaults.standard.set(!newValue, forKey: "soundOff") }
-    }
-
     var liveCount: Int { items.filter { !$0.falling }.count }
 
     private let storeKey = "pegged"
@@ -67,7 +62,6 @@ final class Line: ObservableObject {
             drop(oldest.id, quietly: true)
         }
         save()
-        if !quietly { play("Tink", volume: 0.35) }
         return item.id
     }
 
@@ -87,7 +81,6 @@ final class Line: ObservableObject {
         items[i].falling = true
         hitRects[id] = nil
         save()
-        if !quietly { play("Pop", volume: 0.25) }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
             self?.items.removeAll { $0.id == id }
         }
@@ -139,17 +132,11 @@ final class Line: ObservableObject {
         do {
             try FileManager.default.trashItem(at: item.url, resultingItemURL: nil)
             log.notice("Trashed \(item.url.lastPathComponent, privacy: .public)")
-            if soundOn { Line.trashSound?.play() }
             drop(id, quietly: true)
         } catch {
             log.error("Could not trash \(item.url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            NSSound.beep()
         }
     }
-
-    private static let trashSound = NSSound(
-        contentsOfFile: "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/dock/drag to trash.aif",
-        byReference: true)
 
     /// Whether the file lives in Tendedero's own folder. Those are discarded
     /// to the Trash, or the folder would fill up with forgotten screenshots.
@@ -174,7 +161,6 @@ final class Line: ObservableObject {
             drop(id, quietly: true)
         } catch {
             log.error("Could not save to Desktop: \(error.localizedDescription, privacy: .public)")
-            NSSound.beep()
         }
     }
 
@@ -235,12 +221,6 @@ final class Line: ObservableObject {
     }
 
     // MARK: Helpers
-
-    private func play(_ name: String, volume: Float) {
-        guard soundOn, let sound = NSSound(named: name)?.copy() as? NSSound else { return }
-        sound.volume = volume
-        sound.play()
-    }
 
     private func pngData(_ url: URL) -> Data? {
         if url.pathExtension.lowercased() == "png" { return try? Data(contentsOf: url) }
