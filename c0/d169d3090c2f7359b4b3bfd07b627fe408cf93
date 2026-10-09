@@ -1,0 +1,19 @@
+Sources/Tendedero/CaptureOverlay.swift
+  s_1ba8dd6364efd5::t_860c245f579d7a 1-560
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "c0d169d3090c2f7359b4b3bfd07b627fe408cf93",
+  "prompts": {},
+  "sessions": {
+    "s_1ba8dd6364efd5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11e41-7d91-7882-b04f-e88469d03d5f",
+        "model": "unknown"
+      },
+      "human_author": "xc <xicheng100@163.com>"
+    }
+  }
+}
