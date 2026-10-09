@@ -1,0 +1,29 @@
+Sources/Tendedero/CaptureOverlay.swift
+  s_88c6932b70194b::t_00f292a2417706 44-52,54-55,538,545-549
+  s_88c6932b70194b::t_8e419410d194c2 517,524-532,534,566,571-576
+  s_88c6932b70194b::t_d8fa6ea9fe9c0d 13-17,25,90
+  s_88c6932b70194b::t_0b7c90fb35e5da 68,143,145,291-295,550-555,562
+  s_88c6932b70194b::t_60c2e863ea423d 19-22
+  s_88c6932b70194b::t_97da0b32ec9688 518,533
+Sources/Tendedero/CaptureController.swift
+  s_88c6932b70194b::t_ec809ba95bdb2d 23-31,35,53,57
+  s_88c6932b70194b::t_36e62924de5c7d 32-34,43,72-87,89-95,97-99,101,103
+Sources/Tendedero/PinnedImageWindow.swift
+  s_88c6932b70194b::t_e4f93e7c88d8fb 8,43,49,122-126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "59c1f50342168f01b80da60431bbb588128e1752",
+  "prompts": {},
+  "sessions": {
+    "s_88c6932b70194b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11a7f-69e6-76f0-8903-76a7e8eacd2a",
+        "model": "gpt-5.5"
+      },
+      "human_author": "xc <xicheng100@163.com>"
+    }
+  }
+}
